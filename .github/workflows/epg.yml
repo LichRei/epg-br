@@ -12,6 +12,94 @@ permissions:
 jobs:
   grab:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        site:
+          - claro.com.br
+          - vivoplay.com.br
+          - mi.tv
+    steps:
+      - name: Baixar o projeto iptv-org/epg
+        uses: actions/checkout@v4
+        with:
+          repository: iptv-org/epg
+          ref: master
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Instalar dependencias
+        run: npm install
+      - name: Coletar programacao
+        run: |
+          mkdir -p dist
+          npm run grab --- --sites=${{ matrix.site }} --maxConnections=10 --days=7 --output=dist/guide.xml
+        continue-on-error: true
+      - name: Conferir e comprimir
+        run: |
+          ls -la dist/ || true
+          if [ ! -f "dist/guide.xml" ]; then
+            echo "::error::Nenhum arquivo gerado para ${{ matrix.site }}"
+            exit 1
+          fi
+          mv dist/guide.xml "dist/${{ matrix.site }}.xml"
+          gzip -9 "dist/${{ matrix.site }}.xml"
+          ls -lh dist/
+      - name: Guardar resultado
+        uses: actions/upload-artifact@v4
+        with:
+          name: epg-${{ matrix.site }}
+          path: dist/*.gz
+          retention-days: 1
+
+  publicar:
+    needs: grab
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Juntar os arquivos
+        uses: actions/download-artifact@v4
+        with:
+          path: baixados
+        continue-on-error: true
+      - name: Organizar
+        run: |
+          mkdir -p publicar
+          find baixados -name "*.gz" -exec cp {} publicar/ \; 2>/dev/null || true
+          cd publicar
+          if [ -z "$(ls -A . 2>/dev/null)" ]; then
+            echo "::error::Nenhum arquivo foi gerado por nenhum site"
+            exit 1
+          fi
+          echo "<html><body><h1>EPG Guia BR</h1><ul>" > index.html
+          for f in *.gz; do
+            echo "<li><a href=\"$f\">$f</a></li>" >> index.html
+          done
+          echo "</ul><p>Gerado em $(date -u)</p></body></html>" >> index.html
+          ls -lh
+      - name: Publicar no GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./publicar
+          publish_branch: gh-pages
+          force_orphan: true
+name: Gerar EPG
+
+on:
+  schedule:
+    - cron: "10 6 * * *"
+    - cron: "10 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  grab:
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
