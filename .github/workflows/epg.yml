@@ -17,11 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         site:
-          - claro.com.br
           - clarotvmais.com.br
           - vivoplay.com.br
           - guiadetv.com
-          - meuguia.tv
     steps:
       - name: Baixar o projeto iptv-org/epg
         uses: actions/checkout@v4
